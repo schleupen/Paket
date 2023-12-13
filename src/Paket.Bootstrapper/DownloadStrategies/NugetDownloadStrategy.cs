@@ -20,7 +20,7 @@ namespace Paket.Bootstrapper.DownloadStrategies
             const string DefaultNugetSource = "https://www.nuget.org/api/v2";
             const string GetPackageVersionTemplate = "{0}/package-versions/{1}";
             const string GetLatestFromNugetUrlTemplate = "{0}/package/{1}";
-            const string GetSpecificFromNugetUrlTemplate = "{0}/package/{1}/{2}";
+            const string GetSpecificFromNugetUrlTemplate = "{0}/{1}/{2}";
 
             public NugetApiHelper(string packageName, string nugetSource)
             {
