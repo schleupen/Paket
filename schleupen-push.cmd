@@ -1,0 +1,1 @@
+dotnet nuget push temp\CSPaket.<replace_with_last_version_from_RELEASENOTES.md>.nupkg --api-key <insert_nexus_api_key> --source https://nexus/repository/Schleupen.CS.Nuget/
