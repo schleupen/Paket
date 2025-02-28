@@ -1,3 +1,19 @@
+#### 9.0.2 - 2024-11-19
+* paket restore on projects with targetframework net9.0-windows - https://github.com/fsprojects/Paket/pull/4279
+
+#### 9.0.1 - 2024-11-15
+* Bring back boostrapper - even for .NET 9
+
+#### 9.0.0 - 2024-11-13
+* Support for .NET 9.0 - https://github.com/fsprojects/Paket/pull/4248
+* Added support for central package managments to fix issue about [references: strict either does not work, or does not work as expected](https://github.com/fsprojects/Paket/issues/2257)
+
+#### 8.1.0-alpha004 - 2024-06-19
+* Preview support for .NET 9.0 - https://github.com/fsprojects/Paket/pull/4248
+
+#### 8.1.0-alpha001 - 2024-01-30
+* BUGFIX: Aliases should not be inherited - https://github.com/fsprojects/Paket/pull/4244
+
 #### 8.0.3 - 2024-01-15
 * Paket ignored the alias setting on SDK-based projects - https://github.com/fsprojects/Paket/pull/4238
 * Fixed net8.0-windows target issue - https://github.com/fsprojects/Paket/pull/4242

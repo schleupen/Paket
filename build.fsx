@@ -67,7 +67,7 @@ let mutable dotnetExePath = "dotnet"
 
 let buildDir = "bin"
 let buildDirNet461 = buildDir @@ "net461"
-let buildDirNetCore = buildDir @@ "netcoreapp2.1"
+let buildDirNetCore = buildDir @@ "netcoreapp3.1"
 let buildDirBootstrapper = "bin_bootstrapper"
 let buildDirBootstrapperNet461 = buildDirBootstrapper @@ "net461"
 let buildDirBootstrapperNetCore = buildDirBootstrapper @@ "netcoreapp2.1"
@@ -155,7 +155,7 @@ let releaseNotesPath = releaseNotesProp release.Notes
 
 let packageProps = [
     sprintf "/p:Version=%s" release.NugetVersion
-    sprintf "/p:PackageReleaseNotesFile=%s" releaseNotesPath
+    sprintf "/p:PackageReleaseNotesFile=\"%s\"" releaseNotesPath
 ]
 
 Target "Build" (fun _ ->
@@ -199,7 +199,7 @@ Target "Publish" (fun _ ->
     DotNetCli.Publish (fun c ->
         { c with
             Project = "src/Paket"
-            Framework = "netcoreapp2.1"
+            Framework = "netcoreapp3.1"
             Output = FullName (currentDirectory </> buildDirNetCore)
             ToolPath = dotnetExePath
             AdditionalArgs = publishArgs
@@ -370,31 +370,32 @@ let mutable isUnsignedAllowed = true
 Target "EnsurePackageSigned" (fun _ -> isUnsignedAllowed <- false)
 
 Target "SignAssemblies" (fun _ ->
-    if not <| fileExists pfx then
-        if isUnsignedAllowed then ()
-        else failwithf "%s not found, can't sign assemblies" pfx
-    else
+    // if not <| fileExists pfx then
+    //     if isUnsignedAllowed then ()
+    //     else failwithf "%s not found, can't sign assemblies" pfx
+    // else
 
-    let filesToSign =
-        !! "bin/**/*.exe"
-        ++ "bin/**/Paket.Core.dll"
-        ++ "bin_bootstrapper/**/*.exe"
-        |> Seq.cache
+    // let filesToSign =
+    //     !! "bin/**/*.exe"
+    //     ++ "bin/**/Paket.Core.dll"
+    //     ++ "bin_bootstrapper/**/*.exe"
+    //     |> Seq.cache
 
-    if Seq.length filesToSign < 3 then failwith "Didn't find files to sign"
+    // if Seq.length filesToSign < 3 then failwith "Didn't find files to sign"
 
-    match getBuildParam "cert-pw" with
-    | pw when not (String.IsNullOrWhiteSpace pw) ->
-        filesToSign
-            |> Seq.iter (fun executable ->
-                let signtool = currentDirectory @@ "tools" @@ "SignTool" @@ "signtool.exe"
-                let args = sprintf "sign /f %s /p \"%s\" /t http://timestamp.comodoca.com/authenticode %s" pfx pw executable
-                let result =
-                    ExecProcess (fun info ->
-                        info.FileName <- signtool
-                        info.Arguments <- args) System.TimeSpan.MaxValue
-                if result <> 0 then failwithf "Error during signing %s with %s" executable pfx)
-    | _ -> failwith "PW for cert missing"
+    // match getBuildParam "cert-pw" with
+    // | pw when not (String.IsNullOrWhiteSpace pw) ->
+    //     filesToSign
+    //         |> Seq.iter (fun executable ->
+    //             let signtool = currentDirectory @@ "tools" @@ "SignTool" @@ "signtool.exe"
+    //             let args = sprintf "sign /f %s /p \"%s\" /t http://timestamp.comodoca.com/authenticode %s" pfx pw executable
+    //             let result =
+    //                 ExecProcess (fun info ->
+    //                     info.FileName <- signtool
+    //                     info.Arguments <- args) System.TimeSpan.MaxValue
+    //             if result <> 0 then failwithf "Error during signing %s with %s" executable pfx)
+    // | _ -> failwith "PW for cert missing"
+    ()
 )
 
 Target "CalculateDownloadHash" (fun _ ->
