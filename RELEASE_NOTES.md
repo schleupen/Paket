@@ -1,3 +1,9 @@
+#### 8.0.5 - 2025-07-17
+* Paket ignored the copy_local and storage settings when referencing an external_lock file
+
+#### 8.0.4 - 2024-03-05
+* Paket did not process dependencies in the expected hierarchial order top -> bottom
+
 #### 8.0.3 - 2024-01-15
 * Paket ignored the alias setting on SDK-based projects - https://github.com/fsprojects/Paket/pull/4238
 * Fixed net8.0-windows target issue - https://github.com/fsprojects/Paket/pull/4242
