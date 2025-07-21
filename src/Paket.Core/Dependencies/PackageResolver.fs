@@ -67,7 +67,7 @@ type ResolvedPackage = {
     Source               : PackageSource
     DependenciesLockOnly : bool
 } with
-    override this.ToString () = sprintf "%O %O" this.Name this.Version
+    override this.ToString () = sprintf "%O %O%s" this.Name this.Version (if this.DependenciesLockOnly then " : DependencyLock" else "")
 
     member self.HasFrameworkRestrictions =
         getExplicitRestriction self.Settings.FrameworkRestrictions <> FrameworkRestriction.NoRestriction
@@ -521,27 +521,17 @@ type StackPack = {
     ConflictHistory      : Dictionary<PackageName, int>
 }
 
-let rec private unlockTransitiveDependencies (dependencies:DependencySet) (exploredPackages:Dictionary<PackageName*SemVerInfo,ResolvedPackage>) =
-    for (packagename, verRest, fwkRest) in dependencies do
-        let key = exploredPackages.Keys |> Seq.find (fun (name, _) -> name = packagename)
-        let exploredPackage = exploredPackages[key]
-        if exploredPackage.DependenciesLockOnly then
-            let _ = unlockTransitiveDependencies exploredPackage.Dependencies, exploredPackages
-            exploredPackages[key] <- { exploredPackage with DependenciesLockOnly = false }
-
 let private getExploredPackage (pkgConfig:PackageConfig) (getPackageDetailsBlock:PackageDetailsSyncFunc) (stackpack:StackPack) =
     let key = (pkgConfig.Dependency.Name, pkgConfig.VersionCache.Version)
 
     match stackpack.ExploredPackages.TryGetValue key with
     | true, package ->
-        let package = updateRestrictions pkgConfig package
+        let mutable package = updateRestrictions pkgConfig package
 
         if not pkgConfig.Dependency.Parent.IsDependenciesLock then
-            let isDependenciesLockOnly = stackpack.ExploredPackages.[key].DependenciesLockOnly
-            stackpack.ExploredPackages.[key] <- { package with DependenciesLockOnly = false }
-            if isDependenciesLockOnly then unlockTransitiveDependencies package.Dependencies stackpack.ExploredPackages
-        else
-            stackpack.ExploredPackages.[key] <- package
+            package <- { package with DependenciesLockOnly = false }
+
+        stackpack.ExploredPackages.[key] <- package
         if verbose then
             verbosefn "   Retrieved Explored Package  %O" package
         stackpack, Result.Ok(true, package)
@@ -965,6 +955,39 @@ type private StepResult =
     | Stage of Stage * StackPack * seq<VersionCache> * StepFlags
     | State of ConflictState
 
+let rec unlockTransitiveDependencies (packageName:PackageName) (resolvedPackage:ResolvedPackage) (currentResolution:Map<PackageName,ResolvedPackage>) : Map<PackageName,ResolvedPackage> =
+    //let mutable result = currentResolution
+
+    //if not resolvedPackage.DependenciesLockOnly then
+    //    for (transitiveDependencyName, _, _) in resolvedPackage.Dependencies do
+    //        let mutable transitivePackage = result.[transitiveDependencyName]
+
+    //        if transitivePackage.DependenciesLockOnly then
+    //            transitivePackage <- { transitivePackage with DependenciesLockOnly = false }
+    //            result <- Map.change transitiveDependencyName (fun o -> if o.IsSome then Some(transitivePackage) else None) result
+    //            result <- unlockTransitiveDependencies transitiveDependencyName transitivePackage result
+
+    //result
+    if not resolvedPackage.DependenciesLockOnly then
+        resolvedPackage.Dependencies
+        |> Seq.fold (fun acc (transitiveDependencyName, _, _) ->
+            match Map.tryFind transitiveDependencyName acc with
+            | Some transitiveDependency when transitiveDependency.DependenciesLockOnly ->
+                let updatedTransitiveDependency = { transitiveDependency with DependenciesLockOnly = false }
+                let acc' = Map.change transitiveDependencyName (fun _ -> Some updatedTransitiveDependency) acc
+                unlockTransitiveDependencies transitiveDependencyName updatedTransitiveDependency acc'
+            | _ -> acc
+        ) currentResolution
+
+    else currentResolution
+
+let addAndUnlockTransitiveDependencies (packageName:PackageName) (resolvedPackage:ResolvedPackage) (currentResolution:Map<PackageName,ResolvedPackage>) : Map<PackageName,ResolvedPackage> =
+    //let resolution = Map.add packageName resolvedPackage currentResolution
+    //unlockTransitiveDependencies packageName resolvedPackage resolution
+    currentResolution
+    |> Map.add packageName resolvedPackage
+    |> unlockTransitiveDependencies packageName resolvedPackage
+
 /// Resolves all direct and transitive dependencies
 let Resolve (getVersionsRaw : PackageVersionsFunc, getPreferredVersionsRaw : PreferredVersionsFunc, getPackageDetailsRaw : PackageDetailsFunc, groupName:GroupName, globalStrategyForDirectDependencies, globalStrategyForTransitives, globalFrameworkRestrictions, rootDependencies:PackageRequirement Set, updateMode : UpdateMode) =
     match groupName.Name with
@@ -1377,7 +1400,7 @@ let Resolve (getVersionsRaw : PackageVersionsFunc, getPreferredVersionsRaw : Pre
                                     { Relax              = currentStep.Relax
                                       FilteredVersions   = Map.add currentRequirement.Name ([versionToExplore],currentConflict.GlobalOverride) currentStep.FilteredVersions
                                       // Replace existing package in the resolved set, because the new instance might have additional information (like framework restrictions)
-                                      CurrentResolution  = Map.add exploredPackage.Name exploredPackage currentStep.CurrentResolution
+                                      CurrentResolution  = addAndUnlockTransitiveDependencies exploredPackage.Name exploredPackage currentStep.CurrentResolution
                                       ClosedRequirements = Set.add currentRequirement currentStep.ClosedRequirements
                                       OpenRequirements   = Set.remove currentRequirement currentStep.OpenRequirements }
                                 | _ ->
@@ -1394,7 +1417,7 @@ let Resolve (getVersionsRaw : PackageVersionsFunc, getPreferredVersionsRaw : Pre
                             //// When resolution is completed, remove all dependencies solely required be external_lock files
                             let filteredNextStep =
                                 if Seq.isEmpty nextStep.OpenRequirements then
-                                    { nextStep with CurrentResolution = nextStep.CurrentResolution |> Map.filter (fun _ r -> not stackpack.ExploredPackages[(r.Name, r.Version)].DependenciesLockOnly) }
+                                    { nextStep with CurrentResolution = nextStep.CurrentResolution |> Map.filter (fun _ r -> not r.DependenciesLockOnly) }
                                 else
                                     nextStep
 
