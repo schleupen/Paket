@@ -956,18 +956,6 @@ type private StepResult =
     | State of ConflictState
 
 let rec unlockTransitiveDependencies (packageName:PackageName) (resolvedPackage:ResolvedPackage) (currentResolution:Map<PackageName,ResolvedPackage>) : Map<PackageName,ResolvedPackage> =
-    //let mutable result = currentResolution
-
-    //if not resolvedPackage.DependenciesLockOnly then
-    //    for (transitiveDependencyName, _, _) in resolvedPackage.Dependencies do
-    //        let mutable transitivePackage = result.[transitiveDependencyName]
-
-    //        if transitivePackage.DependenciesLockOnly then
-    //            transitivePackage <- { transitivePackage with DependenciesLockOnly = false }
-    //            result <- Map.change transitiveDependencyName (fun o -> if o.IsSome then Some(transitivePackage) else None) result
-    //            result <- unlockTransitiveDependencies transitiveDependencyName transitivePackage result
-
-    //result
     if not resolvedPackage.DependenciesLockOnly then
         resolvedPackage.Dependencies
         |> Seq.fold (fun acc (transitiveDependencyName, _, _) ->
@@ -982,8 +970,6 @@ let rec unlockTransitiveDependencies (packageName:PackageName) (resolvedPackage:
     else currentResolution
 
 let addAndUnlockTransitiveDependencies (packageName:PackageName) (resolvedPackage:ResolvedPackage) (currentResolution:Map<PackageName,ResolvedPackage>) : Map<PackageName,ResolvedPackage> =
-    //let resolution = Map.add packageName resolvedPackage currentResolution
-    //unlockTransitiveDependencies packageName resolvedPackage resolution
     currentResolution
     |> Map.add packageName resolvedPackage
     |> unlockTransitiveDependencies packageName resolvedPackage
