@@ -290,7 +290,11 @@ type DependenciesFile(fileName,groups:Map<GroupName,DependenciesGroup>, textRepr
                               Sources = group.Sources
                               Kind = PackageRequirementKind.Package
                               TransitivePrereleases = p.Version.PreRelease <> None
-                              Settings = group.Options.Settings }))
+                              Settings = { group.Options.Settings
+                                with
+                                    CopyLocal = p.Settings.CopyLocal;
+                                    StorageConfig = p.Settings.StorageConfig;
+                                    FrameworkRestrictions = if p.HasFrameworkRestrictions then p.Settings.FrameworkRestrictions else externalGroup.Options.Settings.FrameworkRestrictions }}))
                 |> Seq.toList
 
             if String.IsNullOrWhiteSpace fileName |> not then

@@ -57,16 +57,17 @@ type PackageVersionsSyncFunc = GetPackageVersionsParameters -> seq<SemVerInfo * 
 /// Represents data about resolved packages
 [<StructuredFormatDisplay "{Display}">]
 type ResolvedPackage = {
-    Name                : PackageName
-    Version             : SemVerInfo
-    Dependencies        : DependencySet
-    Unlisted            : bool
-    IsRuntimeDependency : bool
-    Kind                : ResolvedPackageKind
-    Settings            : InstallSettings
-    Source              : PackageSource
+    Name                 : PackageName
+    Version              : SemVerInfo
+    Dependencies         : DependencySet
+    Unlisted             : bool
+    IsRuntimeDependency  : bool
+    Kind                 : ResolvedPackageKind
+    Settings             : InstallSettings
+    Source               : PackageSource
+    DependenciesLockOnly : bool
 } with
-    override this.ToString () = sprintf "%O %O" this.Name this.Version
+    override this.ToString () = sprintf "%O %O%s" this.Name this.Version (if this.DependenciesLockOnly then " : DependencyLock" else "")
 
     member self.HasFrameworkRestrictions =
         getExplicitRestriction self.Settings.FrameworkRestrictions <> FrameworkRestriction.NoRestriction
@@ -497,15 +498,16 @@ let private explorePackageConfig (getPackageDetailsBlock:PackageDetailsSyncFunc)
                 | _ -> dependency.Settings
             |> fun x -> x.AdjustWithSpecialCases packageDetails.Name
         Result.Ok
-            { Name                = packageDetails.Name
-              Version             = version
-              Dependencies        = filteredDependencies
-              Unlisted            = packageDetails.Unlisted
-              Settings            = { settings with FrameworkRestrictions = newRestrictions }
-              Source              = packageDetails.Source
-              Kind                = if Set.contains packageDetails.Name pkgConfig.CliTools then ResolvedPackageKind.DotnetCliTool
-                                    else ResolvedPackageKind.Package
-              IsRuntimeDependency = false
+            { Name                 = packageDetails.Name
+              Version              = version
+              Dependencies         = filteredDependencies
+              Unlisted             = packageDetails.Unlisted
+              Settings             = { settings with FrameworkRestrictions = newRestrictions }
+              Source               = packageDetails.Source
+              Kind                 = if Set.contains packageDetails.Name pkgConfig.CliTools then ResolvedPackageKind.DotnetCliTool
+                                     else ResolvedPackageKind.Package
+              IsRuntimeDependency  = false
+              DependenciesLockOnly = pkgConfig.Dependency.Parent.IsDependenciesLock
             }
     with
     | exn ->
@@ -519,13 +521,16 @@ type StackPack = {
     ConflictHistory      : Dictionary<PackageName, int>
 }
 
-
 let private getExploredPackage (pkgConfig:PackageConfig) (getPackageDetailsBlock:PackageDetailsSyncFunc) (stackpack:StackPack) =
     let key = (pkgConfig.Dependency.Name, pkgConfig.VersionCache.Version)
 
     match stackpack.ExploredPackages.TryGetValue key with
     | true, package ->
-        let package = updateRestrictions pkgConfig package
+        let mutable package = updateRestrictions pkgConfig package
+
+        if not pkgConfig.Dependency.Parent.IsDependenciesLock then
+            package <- { package with DependenciesLockOnly = false }
+
         stackpack.ExploredPackages.[key] <- package
         if verbose then
             verbosefn "   Retrieved Explored Package  %O" package
@@ -950,6 +955,25 @@ type private StepResult =
     | Stage of Stage * StackPack * seq<VersionCache> * StepFlags
     | State of ConflictState
 
+let rec unlockTransitiveDependencies (packageName:PackageName) (resolvedPackage:ResolvedPackage) (currentResolution:Map<PackageName,ResolvedPackage>) : Map<PackageName,ResolvedPackage> =
+    if not resolvedPackage.DependenciesLockOnly then
+        resolvedPackage.Dependencies
+        |> Seq.fold (fun acc (transitiveDependencyName, _, _) ->
+            match Map.tryFind transitiveDependencyName acc with
+            | Some transitiveDependency when transitiveDependency.DependenciesLockOnly ->
+                let updatedTransitiveDependency = { transitiveDependency with DependenciesLockOnly = false }
+                let acc' = Map.change transitiveDependencyName (fun _ -> Some updatedTransitiveDependency) acc
+                unlockTransitiveDependencies transitiveDependencyName updatedTransitiveDependency acc'
+            | _ -> acc
+        ) currentResolution
+
+    else currentResolution
+
+let addAndUnlockTransitiveDependencies (packageName:PackageName) (resolvedPackage:ResolvedPackage) (currentResolution:Map<PackageName,ResolvedPackage>) : Map<PackageName,ResolvedPackage> =
+    currentResolution
+    |> Map.add packageName resolvedPackage
+    |> unlockTransitiveDependencies packageName resolvedPackage
+
 /// Resolves all direct and transitive dependencies
 let Resolve (getVersionsRaw : PackageVersionsFunc, getPreferredVersionsRaw : PreferredVersionsFunc, getPackageDetailsRaw : PackageDetailsFunc, groupName:GroupName, globalStrategyForDirectDependencies, globalStrategyForTransitives, globalFrameworkRestrictions, rootDependencies:PackageRequirement Set, updateMode : UpdateMode) =
     match groupName.Name with
@@ -1362,7 +1386,7 @@ let Resolve (getVersionsRaw : PackageVersionsFunc, getPreferredVersionsRaw : Pre
                                     { Relax              = currentStep.Relax
                                       FilteredVersions   = Map.add currentRequirement.Name ([versionToExplore],currentConflict.GlobalOverride) currentStep.FilteredVersions
                                       // Replace existing package in the resolved set, because the new instance might have additional information (like framework restrictions)
-                                      CurrentResolution  = Map.add exploredPackage.Name exploredPackage currentStep.CurrentResolution
+                                      CurrentResolution  = addAndUnlockTransitiveDependencies exploredPackage.Name exploredPackage currentStep.CurrentResolution
                                       ClosedRequirements = Set.add currentRequirement currentStep.ClosedRequirements
                                       OpenRequirements   = Set.remove currentRequirement currentStep.OpenRequirements }
                                 | _ ->
@@ -1375,7 +1399,15 @@ let Resolve (getVersionsRaw : PackageVersionsFunc, getPreferredVersionsRaw : Pre
                             if nextStep.OpenRequirements = currentStep.OpenRequirements then
                                 failwithf "The resolver confused itself. The new open requirements are the same as the old ones.\nThis will result in an endless loop.%sCurrent Requirement: %A%sRequirements: %A"
                                                 Environment.NewLine currentRequirement Environment.NewLine nextStep.OpenRequirements
-                            StepResult.Stage ((Step((currentConflict,nextStep,currentRequirement), (currentConflict,currentStep,currentRequirement,compatibleVersions,flags)::priorConflictSteps)), stackpack, currentConflict.VersionsToExplore, flags)
+
+                            //// When resolution is completed, remove all dependencies solely required be external_lock files
+                            let filteredNextStep =
+                                if Seq.isEmpty nextStep.OpenRequirements then
+                                    { nextStep with CurrentResolution = nextStep.CurrentResolution |> Map.filter (fun _ r -> not r.DependenciesLockOnly) }
+                                else
+                                    nextStep
+
+                            StepResult.Stage ((Step((currentConflict,filteredNextStep,currentRequirement), (currentConflict,currentStep,currentRequirement,compatibleVersions,flags)::priorConflictSteps)), stackpack, currentConflict.VersionsToExplore, flags)
                         else
                             let getVersionsF packName =
                                 getVersionsBlock ResolverStrategy.Max (GetPackageVersionsParameters.ofParams currentRequirement.Sources groupName packName) currentStep
@@ -1442,7 +1474,7 @@ let Resolve (getVersionsRaw : PackageVersionsFunc, getPreferredVersionsRaw : Pre
         FirstTrial  = true
         UnlistedSearch = false
     }
-        
+
     let rec tryStep result =
         match result with
         | StepResult.State state -> state
