@@ -60,6 +60,8 @@ open PackageResolver
 
 /// Allows to parse and analyze paket.dependencies files.
 type DependenciesFile(fileName,groups:Map<GroupName,DependenciesGroup>, textRepresentation:string []) =
+    let fallbackGroupName = GroupName("main")
+
     let tryMatchPackageLine packageNamePredicate (line : string) =
         let tokens = line.Split([|' '|], StringSplitOptions.RemoveEmptyEntries) |> Array.map (fun s -> s.ToLowerInvariant().Trim())
         match List.ofArray tokens with
@@ -248,6 +250,29 @@ type DependenciesFile(fileName,groups:Map<GroupName,DependenciesGroup>, textRepr
                           Settings = group.Options.Settings })
                 |> Seq.toList
 
+            let resolveExternalGroup (externalGroup:LockFileGroup, lockName:string) =
+                externalGroup.Resolution 
+                |> Seq.map (fun kv ->
+                    let p = kv.Value
+                    { Name = p.Name
+                      VersionRequirement =
+                          VersionRequirement.VersionRequirement(
+                            VersionRange.Specific p.Version,
+                            match p.Version.PreRelease with
+                            | Some pre -> PreReleaseStatus.All // common dependencies must be present in the same paket.lock anyway
+                            | None -> PreReleaseStatus.No )
+                      ResolverStrategyForDirectDependencies = Some ResolverStrategy.Max
+                      ResolverStrategyForTransitives = Some ResolverStrategy.Max
+                      Parent = PackageRequirementSource.DependenciesLock(fileName,lockName)
+                      Graph = Set.empty
+                      Sources = group.Sources
+                      Kind = PackageRequirementKind.Package
+                      TransitivePrereleases = p.Version.PreRelease <> None
+                      Settings = { group.Options.Settings
+                      with
+                          CopyLocal = p.Settings.CopyLocal;
+                          StorageConfig = p.Settings.StorageConfig;
+                          FrameworkRestrictions = if p.HasFrameworkRestrictions then p.Settings.FrameworkRestrictions else externalGroup.Options.Settings.FrameworkRestrictions }})
 
             let externalLockDependencies =
                 group.ExternalLocks
@@ -271,26 +296,12 @@ type DependenciesFile(fileName,groups:Map<GroupName,DependenciesGroup>, textRepr
                         x, LockFile.LoadFrom fi.FullName)
                 |> Seq.collect (fun (lockName, lockFile) ->
                     match lockFile.Groups |> Map.tryFind group.Name with
-                    | None -> Seq.empty
+                    | None -> 
+                        match lockFile.Groups |> Map.tryFind fallbackGroupName with
+                        | None -> Seq.empty
+                        | Some externalGroup -> resolveExternalGroup(externalGroup, lockName)
                     | Some externalGroup ->
-                        externalGroup.Resolution
-                        |> Seq.map (fun kv ->
-                            let p = kv.Value
-                            { Name = p.Name
-                              VersionRequirement =
-                                 VersionRequirement.VersionRequirement(
-                                    VersionRange.Specific p.Version,
-                                    match p.Version.PreRelease with
-                                    | Some pre -> PreReleaseStatus.All // common dependencies must be present in the same paket.lock anyway
-                                    | None -> PreReleaseStatus.No )
-                              ResolverStrategyForDirectDependencies = Some ResolverStrategy.Max
-                              ResolverStrategyForTransitives = Some ResolverStrategy.Max
-                              Parent = PackageRequirementSource.DependenciesLock(fileName,lockName)
-                              Graph = Set.empty
-                              Sources = group.Sources
-                              Kind = PackageRequirementKind.Package
-                              TransitivePrereleases = p.Version.PreRelease <> None
-                              Settings = group.Options.Settings }))
+                        resolveExternalGroup(externalGroup, lockName))
                 |> Seq.toList
 
             if String.IsNullOrWhiteSpace fileName |> not then
