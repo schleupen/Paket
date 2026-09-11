@@ -1,3 +1,8 @@
+#### 11.0.1-alpha001 - 2026-09-11
+* Fixes to extenal_lock handling
+* Improved pruning of packages solely introduced through external_lock files from the resulting paket.lock file
+* Implemented workaround for use of Main-group only external_lock files in non-Main groups by falling back to Main-group packages
+
 #### 11.0.0-alpha001 - 2026-08-30
 * Upgrade to .NET 10: SDK 10.0.400 and target frameworks from net9 to net10.0. The `paket` .NET tool now requires the .NET 10 runtime; the merged `paket.exe` still targets net461.
 
