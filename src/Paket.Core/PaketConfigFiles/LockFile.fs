@@ -492,15 +492,16 @@ module LockFileParser =
                         { currentGroup with
                             LastWasPackage = true
                             Packages =
-                                    { Source = PackageSource.Parse(remote, AuthService.GetGlobalAuthenticationProvider remote)
-                                      Name = PackageName packageName
-                                      Dependencies = Set.empty
-                                      Unlisted = false
-                                      Settings = settings
-                                      Version = SemVer.Parse version
-                                      Kind = kind
+                                    { Source               = PackageSource.Parse(remote, AuthService.GetGlobalAuthenticationProvider remote)
+                                      Name                 = PackageName packageName
+                                      Dependencies         = Set.empty
+                                      Unlisted             = false
+                                      Settings             = settings
+                                      Version              = SemVer.Parse version
+                                      Kind                 = kind
                                       // TODO: write stuff into the lockfile and read it here
-                                      IsRuntimeDependency = isRuntimeDependency } :: currentGroup.Packages }::otherGroups
+                                      IsRuntimeDependency  = isRuntimeDependency
+                                      DependenciesLockOnly = false } :: currentGroup.Packages }::otherGroups
                     | None -> failwith "no source has been specified."
                 | NugetDependency (name, v, frameworkSettings) ->
                     let version,_,isRuntimeDependency,settings = parsePackage v
