@@ -14,7 +14,6 @@ description: |
   Always polite, constructive, and mindful of the project's goals.
 
 on:
-  schedule: hourly
   workflow_dispatch:
     inputs:
       command:
