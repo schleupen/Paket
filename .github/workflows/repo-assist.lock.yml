@@ -94,8 +94,6 @@ on:
     types:
       - created
       - edited
-  schedule:
-    - cron: "44 */1 * * *"
   # steps: # Steps injected into pre-activation job
   # - env:
   # GH_TOKEN: ${{ github.token }}
